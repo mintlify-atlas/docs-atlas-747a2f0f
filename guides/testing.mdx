@@ -1,0 +1,198 @@
+---
+title: "Testing"
+description: "Test components that use solid-query-state without a real browser URL using SolidTestingAdapter."
+---
+
+Components that read and write URL state are tricky to test. The real `QueryStateAdapter` reads from `window.location`, which isn't available in most test environments—and even when it is, tests sharing global URL state can interfere with each other.
+
+`SolidTestingAdapter` solves this by providing an in-memory adapter that your tests control directly. It supports pre-seeding the URL, asserting URL changes via a callback, and simulating a real adapter that retains state across updates.
+
+## Basic setup
+
+Wrap your component in `SolidTestingAdapter` when rendering it in a test:
+
+```tsx
+import { render } from "@solidjs/testing-library";
+import { SolidTestingAdapter } from "solid-query-state";
+import { MyComponent } from "./MyComponent";
+
+test("renders with default state", () => {
+  const { getByRole } = render(() => (
+    <SolidTestingAdapter>
+      <MyComponent />
+    </SolidTestingAdapter>
+  ));
+
+  // assert component renders
+});
+```
+
+## Using `withSolidTestingAdapter` as a wrapper factory
+
+`withSolidTestingAdapter` returns a wrapper component you can pass to `render`'s `wrapper` option. This is the most concise way to wrap a component for testing:
+
+```tsx
+import { render } from "@solidjs/testing-library";
+import { withSolidTestingAdapter } from "solid-query-state";
+import { MyComponent } from "./MyComponent";
+
+test("renders with default state", () => {
+  const { getByRole } = render(() => <MyComponent />, {
+    wrapper: withSolidTestingAdapter(),
+  });
+
+  // assert component renders
+});
+```
+
+Pass adapter options to configure the environment:
+
+```tsx
+const { getByText } = render(() => <MyComponent />, {
+  wrapper: withSolidTestingAdapter({ searchParams: "?page=3" }),
+});
+```
+
+## Pre-seeding the URL with `searchParams`
+
+Use `searchParams` to simulate a user arriving with a specific URL. The value can be a string, a `URLSearchParams` instance, or a plain object:
+
+```tsx
+test("reads page from URL on mount", () => {
+  const { getByText } = render(() => <PaginatedList />, {
+    wrapper: withSolidTestingAdapter({ searchParams: "?page=5" }),
+  });
+
+  expect(getByText("Page 5")).toBeInTheDocument();
+});
+```
+
+```tsx
+test("applies initial filters from URL", () => {
+  const { getByRole } = render(() => <ProductFilters />, {
+    wrapper: withSolidTestingAdapter({
+      searchParams: { category: "electronics", inStock: "true" },
+    }),
+  });
+
+  expect((getByRole("combobox") as HTMLSelectElement).value).toBe("electronics");
+});
+```
+
+## Asserting URL changes with `onUrlUpdate`
+
+`onUrlUpdate` is a callback that fires whenever your component updates the URL. Wire it to a spy to assert the URL changes your component makes:
+
+```tsx
+import { render, fireEvent } from "@solidjs/testing-library";
+import { SolidTestingAdapter } from "solid-query-state";
+import type { UrlUpdateEvent } from "solid-query-state";
+
+test("updates URL when search input changes", async () => {
+  const onUrlUpdate = vi.fn<[UrlUpdateEvent], void>();
+
+  const { getByRole } = render(() => (
+    <SolidTestingAdapter onUrlUpdate={onUrlUpdate}>
+      <SearchBar />
+    </SolidTestingAdapter>
+  ));
+
+  fireEvent.input(getByRole("searchbox"), { target: { value: "laptop" } });
+
+  expect(onUrlUpdate).toHaveBeenCalledWith(
+    expect.objectContaining({
+      queryString: "?q=laptop",
+    }),
+  );
+});
+```
+
+The `UrlUpdateEvent` passed to `onUrlUpdate` contains:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `searchParams` | `URLSearchParams` | The full set of URL params after the update |
+| `queryString` | `string` | The query string (e.g. `"?q=laptop"`) |
+| `options` | `Required<AdapterOptions>` | The history/scroll options used for this update |
+
+## Simulating a real adapter with `hasMemory`
+
+By default, `SolidTestingAdapter` freezes the URL at the initial `searchParams`—writes are forwarded to `onUrlUpdate` but the adapter's internal state does not change. This is useful for isolated assertions, but sometimes you need state to persist across multiple interactions.
+
+Set `hasMemory: true` to make the adapter behave like a real one:
+
+```tsx
+test("page increments correctly across multiple clicks", async () => {
+  const { getByRole } = render(() => (
+    <SolidTestingAdapter
+      searchParams="?page=1"
+      hasMemory
+    >
+      <PaginatedList />
+    </SolidTestingAdapter>
+  ));
+
+  const nextButton = getByRole("button", { name: "Next" });
+
+  fireEvent.click(nextButton);
+  // adapter now holds ?page=2
+
+  fireEvent.click(nextButton);
+  // adapter now holds ?page=3
+
+  expect(getByRole("status")).toHaveTextContent("Page 3");
+});
+```
+
+<Warning>
+  Without `hasMemory: true`, clicking "Next" twice will not accumulate—both clicks read `page=1` from the frozen initial state.
+</Warning>
+
+## Testing parser correctness
+
+solid-query-state exports three utilities for verifying that custom parsers round-trip correctly. These are useful as unit tests for parsers you write with `createParser`.
+
+### `isParserBijective`
+
+Checks both directions at once: serializes `input` and confirms it matches `serialized`, then parses `serialized` and confirms it matches `input`.
+
+```ts
+import { isParserBijective, parseAsInteger } from "solid-query-state";
+
+test("parseAsInteger is bijective", () => {
+  expect(isParserBijective(parseAsInteger, "42", 42)).toBe(true);
+});
+```
+
+Throws with a descriptive error if either direction fails.
+
+### `testSerializeThenParse`
+
+Serializes `input` with the parser, then parses the result and checks it equals `input` using the parser's `eq` function.
+
+```ts
+import { testSerializeThenParse, parseAsIsoDate } from "solid-query-state";
+
+test("parseAsIsoDate round-trips a date", () => {
+  const date = new Date("2024-06-15");
+  expect(testSerializeThenParse(parseAsIsoDate, date)).toBe(true);
+});
+```
+
+### `testParseThenSerialize`
+
+Parses the given query string, then serializes the result and checks it equals the original query string.
+
+```ts
+import { testParseThenSerialize, parseAsArrayOf, parseAsString } from "solid-query-state";
+
+test("parseAsArrayOf round-trips a comma-separated list", () => {
+  expect(
+    testParseThenSerialize(parseAsArrayOf(parseAsString), "a,b,c"),
+  ).toBe(true);
+});
+```
+
+<Tip>
+  Use `isParserBijective` when you want a single assertion that a parser is fully correct. Use `testSerializeThenParse` and `testParseThenSerialize` separately when you want to pinpoint which direction of the round-trip is failing.
+</Tip>

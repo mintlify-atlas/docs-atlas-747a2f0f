@@ -1,0 +1,90 @@
+---
+title: "Installation"
+description: "Install solid-query-state and add the QueryStateAdapter to your Solid.js app."
+---
+
+## Install the package
+
+<CodeGroup>
+
+```bash npm
+npm install solid-query-state
+```
+
+```bash pnpm
+pnpm add solid-query-state
+```
+
+```bash yarn
+yarn add solid-query-state
+```
+
+```bash bun
+bun add solid-query-state
+```
+
+</CodeGroup>
+
+## Peer dependencies
+
+`solid-query-state` requires the following packages to be installed in your project:
+
+| Package | Version | Notes |
+| ------- | ------- | ----- |
+| `solid-js` | `^1` | Required |
+| `typescript` | `^5` | Required |
+
+<Note>
+  TypeScript is a required peer dependency. The library uses TypeScript 5 features for type inference and is not usable without it.
+</Note>
+
+## Setup
+
+Wrap your app with `QueryStateAdapter` at the root of your component tree. This provider sets up the URL listener and makes reactive search params available to all child components.
+
+```tsx
+import { render } from "solid-js/web";
+import { QueryStateAdapter } from "solid-query-state";
+import App from "./App";
+
+render(
+    () => (
+        <QueryStateAdapter>
+            <App />
+        </QueryStateAdapter>
+    ),
+    document.getElementById("root")!,
+);
+```
+
+`QueryStateAdapter` accepts two optional props:
+
+| Prop | Type | Description |
+| ---- | ---- | ----------- |
+| `defaultOptions` | `Options` | Default options applied to all `createQueryState` and `createQueryStates` calls within this provider. |
+| `processUrlSearchParams` | `(search: URLSearchParams) => URLSearchParams` | A function to transform the `URLSearchParams` before they are written to the URL, for example to preserve params managed outside of `solid-query-state`. |
+
+### With default options
+
+You can set default options for all hooks inside the adapter:
+
+```tsx
+import { render } from "solid-js/web";
+import { QueryStateAdapter } from "solid-query-state";
+import App from "./App";
+
+render(
+    () => (
+        <QueryStateAdapter defaultOptions={{ history: "push", scroll: false }}>
+            <App />
+        </QueryStateAdapter>
+    ),
+    document.getElementById("root")!,
+);
+```
+
+Individual hooks can still override these defaults by passing their own `options`.
+
+<Tip>
+  If you are testing components that use `createQueryState`, use `SolidTestingAdapter` or `withSolidTestingAdapter` instead of `QueryStateAdapter`. See the [testing guide](/guides/testing) for details.
+</Tip>

@@ -1,0 +1,218 @@
+---
+title: 'createQueryStates'
+description: 'Manage multiple URL query parameters together as a single reactive object.'
+---
+
+`createQueryStates` manages a group of URL search parameters as a single reactive unit. It accepts a map of key names to parser builders and returns a `[getter, setState]` tuple. All keys are read and written atomically, and partial updates are supported — you only need to specify the keys you want to change.
+
+## Signature
+
+```ts
+function createQueryStates<T extends UseQueryStatesKeysMap>(
+  keyMap: T,
+  options?: UseQueryStatesOptions,
+): UseQueryStatesReturn<T>;
+```
+
+Where the supporting types are:
+
+```ts
+type KeyMapValue = {
+  parse: (value: string) => unknown;
+  serialize?: (value: unknown) => string;
+  eq?: (a: unknown, b: unknown) => boolean;
+  type?: 'single' | 'multi';
+  defaultValue?: unknown;
+} & Options;
+
+type UseQueryStatesKeysMap = Record<string, KeyMapValue>;
+
+type UseQueryStatesOptions = Options & {
+  urlKeys?: UrlKeys<Record<string, string>>;
+};
+
+type UseQueryStatesReturn<T extends UseQueryStatesKeysMap> = [() => Values<T>, SetValues<T>];
+
+// Values resolves each key to its parsed type, applying NonNullable when a defaultValue exists
+type Values<T extends UseQueryStatesKeysMap> = {
+  [K in keyof T]: T[K]['defaultValue'] extends NonNullable<unknown>
+    ? NonNullable<ReturnType<T[K]['parse']>>
+    : ReturnType<T[K]['parse']> | null;
+};
+
+type NullableValues<T extends UseQueryStatesKeysMap> = {
+  [K in keyof T]: Values<T>[K] | null;
+};
+
+type UpdaterFn<T extends UseQueryStatesKeysMap> = (
+  old: Values<T>,
+) => Partial<NullableValues<T>> | null;
+
+type SetValues<T extends UseQueryStatesKeysMap> = (
+  values: Partial<NullableValues<T>> | UpdaterFn<T> | null,
+  options?: Options,
+) => void;
+
+type UrlKeys<T extends Record<string, string>> = Partial<Record<keyof T, string>>;
+```
+
+## Parameters
+
+<ParamField path="keyMap" type="UseQueryStatesKeysMap" required>
+  A record mapping each state key to a parser builder. Keys become the URL parameter names by
+  default (overridable via `urlKeys`). Values are parser builder objects such as `parseAsString`,
+  `parseAsInteger`, or any builder returned by `createParser`.
+
+  Call `.withDefault(value)` on a parser to set a default. Keys with a default value are never
+  `null` in the getter object and are removed from the URL when set back to their default.
+</ParamField>
+
+<ParamField path="options" type="UseQueryStatesOptions">
+  Shared options applied to all keys, plus the `urlKeys` mapping for aliasing URL parameter names.
+
+  <Expandable title="Options fields">
+    <ResponseField name="urlKeys" type="Partial<Record<keyof T, string>>">
+      Maps state keys to different URL parameter names. Useful when the URL parameter name must
+      differ from the JavaScript variable name (e.g., to match an existing API convention).
+
+      ```ts
+      // State key "page" will appear as "p" in the URL
+      createQueryStates(
+        { page: parseAsInteger.withDefault(1) },
+        { urlKeys: { page: 'p' } }
+      )
+      ```
+    </ResponseField>
+    <ResponseField name="history" type='"replace" | "push"' default="replace">
+      How URL updates are recorded in the browser history. `"push"` creates a new history entry
+      so the Back button restores the previous state. `"replace"` (default) updates in place.
+    </ResponseField>
+    <ResponseField name="scroll" type="boolean" default="false">
+      Whether to scroll to the top of the page after each URL update.
+    </ResponseField>
+    <ResponseField name="shallow" type="boolean" default="true">
+      Keeps URL updates client-side only. Has no effect in a standard Solid SPA but is respected
+      by meta-framework adapters.
+    </ResponseField>
+    <ResponseField name="throttleMs" type="number" default="50">
+      Minimum milliseconds between URL writes. Prevents hitting browser History API rate limits
+      during rapid updates.
+    </ResponseField>
+    <ResponseField name="limitUrlUpdates" type="LimitUrlUpdates">
+      Fine-grained rate limiting. Takes precedence over `throttleMs` when both are set.
+
+      ```ts
+      type LimitUrlUpdates =
+        | { method: 'debounce'; timeMs: number }
+        | { method: 'throttle'; timeMs: number }
+      ```
+    </ResponseField>
+    <ResponseField name="clearOnDefault" type="boolean" default="true">
+      Remove a key from the URL when its value equals `defaultValue`. Keeps URLs clean by only
+      including non-default state.
+    </ResponseField>
+  </Expandable>
+</ParamField>
+
+## Return value
+
+A `[getter, setState]` tuple.
+
+<ResponseField name="getter" type="() => Values<T>">
+  A zero-argument accessor function that returns a plain object with the current parsed value for
+  every key in `keyMap`. Keys whose parser has a `defaultValue` are typed as `NonNullable<T>`;
+  all others are `T | null`.
+
+  The getter is a Solid.js reactive `createMemo` — reading it inside a tracking scope subscribes
+  to URL changes.
+</ResponseField>
+
+<ResponseField name="setState" type="(values: Partial<NullableValues<T>> | UpdaterFn<T> | null, options?: Options) => void">
+  Updates one or more URL parameters. Accepts:
+
+  - A **partial object** — only the keys present in the object are updated; omitted keys are left
+    unchanged.
+  - A **functional updater** `(old) => partialObject | null` — receives the full current state
+    object (with defaults applied) and returns a partial update or `null` to clear all keys.
+  - **`null`** — clears every key managed by this `createQueryStates` call from the URL.
+
+  An optional `Options` object can be passed as the second argument to override options (such as
+  `history`) for that specific call only.
+</ResponseField>
+
+## Examples
+
+### Basic multi-key state
+
+```tsx
+import { createQueryStates, parseAsString, parseAsInteger, parseAsStringLiteral } from 'solid-query-state';
+
+function ProductList() {
+  const [filters, setFilters] = createQueryStates({
+    search: parseAsString.withDefault(''),
+    page: parseAsInteger.withDefault(1),
+    sort: parseAsStringLiteral(['asc', 'desc'] as const).withDefault('asc'),
+  });
+
+  return (
+    <div>
+      <input
+        value={filters().search}
+        onInput={(e) => setFilters({ search: e.currentTarget.value, page: 1 })}
+      />
+      <span>Page {filters().page} — sorted {filters().sort}</span>
+    </div>
+  );
+}
+```
+
+### Partial update (change a single key)
+
+```tsx
+// Only `page` changes; all other keys stay as-is
+setFilters({ page: 2 });
+```
+
+### Functional updater
+
+```tsx
+// Increment page based on current value
+setFilters((prev) => ({ page: prev.page + 1 }));
+
+// Reset page when the search query changes
+setFilters((prev) => ({
+  search: newQuery,
+  page: newQuery !== prev.search ? 1 : prev.page,
+}));
+```
+
+### Clear all managed keys
+
+```tsx
+// Removes every key managed by this createQueryStates call from the URL
+setFilters(null);
+```
+
+### URL key aliasing with `urlKeys`
+
+```tsx
+import { createQueryStates, parseAsString, parseAsInteger } from 'solid-query-state';
+
+// Internal keys are "search" and "page"; URL will show "q" and "p"
+const [state, setState] = createQueryStates(
+  {
+    search: parseAsString.withDefault(''),
+    page: parseAsInteger.withDefault(1),
+  },
+  {
+    urlKeys: { search: 'q', page: 'p' },
+  },
+);
+
+// Reads ?q=hello&p=2 from the URL, exposes as { search: 'hello', page: 2 }
+```
+
+<Note>
+  `setState(null)` clears **only** the keys declared in the `keyMap` passed to that
+  `createQueryStates` call. Other query parameters present in the URL are not affected.
+</Note>

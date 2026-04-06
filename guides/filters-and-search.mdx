@@ -1,0 +1,112 @@
+---
+title: "Filters and search"
+description: "Build a filterable product list with URL-synced state using createQueryStates."
+---
+
+When users filter or search a list, those choices should survive a page refresh and be shareable as a link. `createQueryStates` lets you bind multiple filter parameters to the URL in one call, keeping your component state and the URL in sync automatically.
+
+## Building a product filter
+
+Consider a product listing page with three filter controls: a text search, a category selector, and an in-stock toggle. Each maps to its own URL parameter.
+
+```tsx
+import { createQueryStates, parseAsBoolean, parseAsString, parseAsStringLiteral } from "solid-query-state";
+
+const CATEGORIES = ["all", "electronics", "clothing", "books"] as const;
+
+function ProductFilters() {
+  const [filters, setFilters] = createQueryStates({
+    search: parseAsString.withDefault(""),
+    category: parseAsStringLiteral(CATEGORIES).withDefault("all"),
+    inStock: parseAsBoolean.withDefault(false),
+  });
+
+  return (
+    <div>
+      <input
+        type="text"
+        placeholder="Search products..."
+        value={filters().search}
+        onInput={(e) => setFilters({ search: e.currentTarget.value })}
+      />
+
+      <select
+        value={filters().category}
+        onChange={(e) => setFilters({ category: e.currentTarget.value as typeof CATEGORIES[number] })}
+      >
+        {CATEGORIES.map((cat) => (
+          <option value={cat}>{cat}</option>
+        ))}
+      </select>
+
+      <label>
+        <input
+          type="checkbox"
+          checked={filters().inStock}
+          onChange={(e) => setFilters({ inStock: e.currentTarget.checked })}
+        />
+        In stock only
+      </label>
+    </div>
+  );
+}
+```
+
+As the user interacts with the controls, the URL updates in place:
+
+- Typing `"laptop"` → `?search=laptop`
+- Selecting `"electronics"` → `?search=laptop&category=electronics`
+- Checking in-stock → `?search=laptop&category=electronics&inStock=true`
+
+## Clearing filters
+
+Resetting all filters to their defaults is a single call:
+
+```tsx
+<button onClick={() => setFilters(null)}>Clear filters</button>
+```
+
+Passing `null` sets every key back to its default value, which also removes those keys from the URL (see below).
+
+You can also reset individual keys by passing their default values explicitly:
+
+```tsx
+<button onClick={() => setFilters({ search: "" })}>Clear search</button>
+```
+
+## How `clearOnDefault` keeps URLs clean
+
+By default, `clearOnDefault` is `true`. When a value equals its default, solid-query-state removes that key from the URL entirely rather than writing `?search=&category=all&inStock=false`.
+
+This means:
+- A freshly loaded page with no params reads the defaults from your parser definitions.
+- Only params that differ from defaults appear in the URL, keeping links short.
+
+<Tip>
+  You can opt out of this behavior per-param using `.withOptions({ clearOnDefault: false })`, which forces the key to always appear in the URL even when at its default value.
+</Tip>
+
+## Shareable filter URLs
+
+Because filter state lives in the URL, users can copy the address bar and share it. Anyone opening that link lands on the same filtered view automatically—no server session or localStorage involved.
+
+```tsx
+// ?category=electronics&inStock=true
+// → filters().category === "electronics", filters().inStock === true
+```
+
+<Note>
+  `parseAsStringLiteral` rejects values that aren't in the provided array and falls back to `null` (or the default if you called `.withDefault()`). This prevents invalid values from reaching your component even when someone manually edits the URL.
+</Note>
+
+## Updating one filter at a time
+
+`setFilters` performs a shallow merge, so you only need to pass the keys you want to change:
+
+```tsx
+// Only updates `page`, leaves other params untouched
+setFilters({ category: "books" });
+
+// Functional updater — useful when next value depends on current
+setFilters((prev) => ({ search: prev.search.trim() }));
+```

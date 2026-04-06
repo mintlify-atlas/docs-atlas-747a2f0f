@@ -1,0 +1,268 @@
+---
+title: 'Testing utilities'
+description: 'Utilities that help you test components using solid-query-state and validate custom parsers.'
+---
+
+These utilities let you mount components under a controlled URL state in tests, spy on URL updates, and verify that custom parsers round-trip values correctly.
+
+## SolidTestingAdapter
+
+`SolidTestingAdapter` is a Solid.js component that replaces the real router adapter with an in-memory one. Wrap your component-under-test with it so that `createQueryState` and `createQueryStates` read from and write to an isolated URL state instead of `window.location`.
+
+```tsx
+import { SolidTestingAdapter } from 'solid-query-state'
+import { render } from '@solidjs/testing-library'
+
+render(() => (
+  <SolidTestingAdapter searchParams="?page=1" onUrlUpdate={vi.fn()}>
+    <MyComponent />
+  </SolidTestingAdapter>
+))
+```
+
+### Props
+
+<ParamField body="searchParams" type="string | Record<string, string | string[] | undefined> | URLSearchParams">
+  Initial URL search params for the test. Accepts a query string (with or without the leading `?`), a plain object, or a `URLSearchParams` instance. Defaults to an empty string (no params).
+</ParamField>
+
+<ParamField body="onUrlUpdate" type="(event: UrlUpdateEvent) => void">
+  Callback invoked every time the adapter would update the URL. Connect a spy here to assert the URL changes your component produces.
+
+  See [`UrlUpdateEvent`](#urlupdateevent) for the shape of the argument.
+</ParamField>
+
+<ParamField body="hasMemory" type="boolean" default="false">
+  When `true`, the adapter stores updated search params in memory and returns them on subsequent reads, simulating how a real router adapter behaves across multiple updates. When `false`, the search params are frozen to the initial value.
+</ParamField>
+
+<ParamField body="defaultOptions" type="Partial<Pick<Options, 'scroll' | 'clearOnDefault' | 'limitUrlUpdates' | 'shallow'>>">
+  Global option overrides applied to every `createQueryState` / `createQueryStates` call within the adapter. Equivalent to the `defaultOptions` prop on the production adapter.
+</ParamField>
+
+<ParamField body="processUrlSearchParams" type="(search: URLSearchParams) => URLSearchParams">
+  Optional transform applied to the `URLSearchParams` object before it is handed to the hooks. Use this to filter or rewrite params at the adapter level.
+</ParamField>
+
+<ParamField body="rateLimitFactor" type="number" default="0">
+  Internal. Controls throttle timing during tests. Leave at `0` (no throttling) unless you are specifically testing rate-limit behaviour.
+</ParamField>
+
+<ParamField body="resetUrlUpdateQueueOnMount" type="boolean" default="true">
+  Internal. Clears the shared global update queue when the adapter mounts, preventing state from leaking between tests.
+</ParamField>
+
+<ParamField body="autoResetQueueOnUpdate" type="boolean" default="true">
+  Internal. Resets the queue after each URL update. Disable only when testing queue-specific edge cases.
+</ParamField>
+
+### UrlUpdateEvent
+
+The object passed to `onUrlUpdate` each time the adapter would push a URL change.
+
+<ResponseField name="searchParams" type="URLSearchParams" required>
+  A snapshot of the full search params after the update.
+</ResponseField>
+
+<ResponseField name="queryString" type="string" required>
+  The rendered query string, including the leading `?` (e.g. `?page=2&sort=asc`).
+</ResponseField>
+
+<ResponseField name="options" type="Required<AdapterOptions>" required>
+  The resolved history / scroll / shallow options that were active for this update.
+</ResponseField>
+
+### OnUrlUpdateFunction
+
+```ts
+type OnUrlUpdateFunction = (event: UrlUpdateEvent) => void
+```
+
+The type of the `onUrlUpdate` prop. Import it when you want to type a spy variable explicitly.
+
+```ts
+import type { OnUrlUpdateFunction } from 'solid-query-state'
+
+const onUrlUpdate: OnUrlUpdateFunction = vi.fn()
+```
+
+---
+
+## withSolidTestingAdapter
+
+`withSolidTestingAdapter` is a higher-order component factory. It returns a wrapper component that you can pass to the `wrapper` option of `render()` from `@solidjs/testing-library`. This is useful when you want to share the same adapter configuration across multiple `render` calls without repeating the JSX.
+
+```ts
+function withSolidTestingAdapter(
+  adapterProps?: Omit<TestingAdapterProps, 'children'>
+): (props: { children: JSX.Element }) => JSX.Element
+```
+
+### Usage
+
+```tsx
+import { withSolidTestingAdapter } from 'solid-query-state'
+import { render } from '@solidjs/testing-library'
+
+const onUrlUpdate = vi.fn()
+
+render(() => <MyComponent />, {
+  wrapper: (props) =>
+    withSolidTestingAdapter({
+      searchParams: '?page=1',
+      onUrlUpdate,
+    })(props),
+})
+```
+
+You can also create the wrapper once and reuse it:
+
+```tsx
+const wrapper = withSolidTestingAdapter({ searchParams: '?tab=overview' })
+
+render(() => <ComponentA />, { wrapper })
+render(() => <ComponentB />, { wrapper })
+```
+
+<Note>
+  `withSolidTestingAdapter` accepts every prop that `SolidTestingAdapter` accepts except `children`, which is provided by the testing library.
+</Note>
+
+---
+
+## Parser testing utilities
+
+These functions validate that a custom parser correctly round-trips values in both directions. All three throw a descriptive error if a check fails, making them compatible with any test runner that expects thrown errors (Vitest, Jest, etc.).
+
+Import from the `solid-query-state` package:
+
+```ts
+import {
+  isParserBijective,
+  testSerializeThenParse,
+  testParseThenSerialize,
+} from 'solid-query-state'
+```
+
+### isParserBijective
+
+Tests **both** directions at once:
+
+1. Serializes `input` and checks it matches `serialized`.
+2. Parses `serialized` and checks it matches `input` using the parser's `eq` function.
+
+```ts
+// Single-value parser
+function isParserBijective<T>(
+  parser: SingleParserBuilder<T>,
+  serialized: string,
+  input: T,
+): boolean
+
+// Multi-value parser
+function isParserBijective<T>(
+  parser: MultiParserBuilder<T>,
+  serialized: Array<string>,
+  input: T,
+): boolean
+```
+
+Returns `true` if all checks pass. Throws if any check fails.
+
+```ts
+import { parseAsInteger, isParserBijective } from 'solid-query-state'
+
+it('parseAsInteger is bijective', () => {
+  expect(isParserBijective(parseAsInteger, '42', 42)).toBe(true)
+})
+```
+
+For a custom parser:
+
+```ts
+import { createParser, isParserBijective } from 'solid-query-state'
+
+const parseAsColor = createParser({
+  parse: (v) => (v.startsWith('#') ? v : null),
+  serialize: (v) => v,
+})
+
+it('parseAsColor is bijective', () => {
+  expect(isParserBijective(parseAsColor, '#ff0000', '#ff0000')).toBe(true)
+})
+```
+
+---
+
+### testSerializeThenParse
+
+Tests the **serialize → parse** direction only. Serializes `input`, then parses the result, and asserts the parsed value equals `input` via the parser's `eq` function.
+
+```ts
+// Single-value parser
+function testSerializeThenParse<T>(
+  parser: SingleParserBuilder<T>,
+  input: T,
+): boolean
+
+// Multi-value parser
+function testSerializeThenParse<T>(
+  parser: MultiParserBuilder<T>,
+  input: T,
+): boolean
+```
+
+Returns `true` if the round-trip succeeds. Throws if the parsed value does not equal the input.
+
+```ts
+import { parseAsFloat, testSerializeThenParse } from 'solid-query-state'
+
+it('round-trips a float', () => {
+  expect(testSerializeThenParse(parseAsFloat, 3.14)).toBe(true)
+})
+```
+
+---
+
+### testParseThenSerialize
+
+Tests the **parse → serialize** direction only. Parses the raw query string `input`, then serializes the result, and asserts the output query string equals `input`.
+
+```ts
+// Single-value parser
+function testParseThenSerialize<T>(
+  parser: SingleParserBuilder<T>,
+  input: string,
+): boolean
+
+// Multi-value parser
+function testParseThenSerialize<T>(
+  parser: MultiParserBuilder<T>,
+  input: Array<string>,
+): boolean
+```
+
+Returns `true` if the round-trip succeeds. Throws if the serialized output does not match the input query.
+
+```ts
+import { parseAsBoolean, testParseThenSerialize } from 'solid-query-state'
+
+it('round-trips a boolean query string', () => {
+  expect(testParseThenSerialize(parseAsBoolean, 'true')).toBe(true)
+})
+```
+
+For a multi-value parser:
+
+```ts
+import { createMultiParser, testParseThenSerialize } from 'solid-query-state'
+
+const parseAsStringArray = createMultiParser({
+  parse: (values) => values.map(String),
+  serialize: (values) => values.map(String),
+})
+
+it('round-trips a multi-value query', () => {
+  expect(testParseThenSerialize(parseAsStringArray, ['a', 'b', 'c'])).toBe(true)
+})
+```

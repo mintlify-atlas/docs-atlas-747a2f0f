@@ -1,0 +1,93 @@
+---
+title: "Introduction"
+description: "Type-safe URL query state management for Solid.js. Sync component state with URL search parameters for filters, pagination, modals, and more."
+---
+
+`solid-query-state` gives you a `createSignal`-like API that automatically persists state to the URL. When users share a link, their filters, pagination, and search terms come with it — no extra code required.
+
+## What it does
+
+Managing URL search params manually is repetitive: you parse strings, handle missing values, keep state in sync across navigation, and write boilerplate for every parameter type. `solid-query-state` handles all of this with a clean, type-safe API modeled after Solid.js primitives.
+
+```tsx
+import { createQueryState, parseAsInteger } from "solid-query-state";
+
+const [page, setPage] = createQueryState("page", parseAsInteger.withDefault(1));
+// URL: ?page=3
+// page() === 3
+```
+
+When the user navigates back or forward, state is automatically restored from the URL. When you update state, the URL updates in place — no manual `URLSearchParams` manipulation required.
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Type-safe by default" icon="shield-check">
+    Every built-in parser returns a TypeScript-inferred type. No manual casting, no `any`. Custom parsers are fully typed too.
+  </Card>
+  <Card title="Shareable URLs" icon="link">
+    State lives in the URL, so links always reflect the current view. Filters, pagination, and search terms are preserved when users copy and share a URL.
+  </Card>
+  <Card title="Browser history support" icon="clock-rotate-left">
+    Back and forward navigation automatically restores state. Push or replace history entries using the `history` option.
+  </Card>
+  <Card title="Built-in parsers" icon="layer-group">
+    String, integer, float, boolean, date (ISO and timestamp), hex, index, arrays, string literals, and enums — all included.
+  </Card>
+  <Card title="Multiple params at once" icon="sliders">
+    Use `createQueryStates` to manage several URL parameters together with a single getter and setter.
+  </Card>
+  <Card title="Custom parsers" icon="code">
+    Use `createParser` to define parse and serialize logic for any value type, including JSON objects or complex domain types.
+  </Card>
+</CardGroup>
+
+## How it compares to manual URL management
+
+Without `solid-query-state`, syncing state to the URL looks like this:
+
+```tsx
+// Manual approach — parse, validate, serialize, and sync by hand
+const params = new URLSearchParams(location.search);
+const rawPage = params.get("page");
+const page = rawPage ? parseInt(rawPage) : 1;
+
+function goToPage(n: number) {
+  const next = new URLSearchParams(location.search);
+  next.set("page", String(n));
+  history.replaceState(null, "", "?" + next.toString());
+}
+```
+
+With `solid-query-state`, the same thing is:
+
+```tsx
+const [page, setPage] = createQueryState("page", parseAsInteger.withDefault(1));
+```
+
+The library handles parsing, serialization, default values, URL updates, and cross-tab sync automatically.
+
+## How it works
+
+`solid-query-state` reads from and writes to `URLSearchParams` using a reactive adapter connected to Solid's signal system.
+
+1. **`QueryStateAdapter`** is a context provider you add at the root of your app. It listens to `popstate` events and exposes a reactive `URLSearchParams` signal to all child components.
+
+2. **`createQueryState`** and **`createQueryStates`** are hooks that read from that signal and return a typed reactive getter. When you call the setter, they serialize the new value and update the URL using `history.pushState` or `history.replaceState`.
+
+3. **Parsers** define how values move between strings in the URL and typed values in your component. Each parser has a `parse` function (string → value) and a `serialize` function (value → string). The `.withDefault()` method sets the default value and removes the key from the URL when the value matches it.
+
+All state changes are reflected immediately in the URL, and all URL changes (including back/forward navigation) are immediately reflected in reactive state.
+
+## Requirements
+
+`solid-query-state` requires the following peer dependencies:
+
+| Dependency | Version |
+| ---------- | ------- |
+| `solid-js` | `^1`    |
+| `typescript` | `^5`  |
+
+<Note>
+  TypeScript is a required peer dependency, not optional. The library's type inference depends on TypeScript 5 features.
+</Note>

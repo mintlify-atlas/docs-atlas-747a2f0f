@@ -1,0 +1,221 @@
+---
+title: 'createQueryState'
+description: 'Manage a single URL query parameter as reactive Solid.js state.'
+---
+
+`createQueryState` binds a single URL search parameter to a reactive signal. It returns a `[getter, setter]` tuple — similar in shape to `createSignal` — where reads are reactive and writes update the URL in place.
+
+## Signature
+
+```ts
+function createQueryState<T>(
+  key: string,
+  options: CreateQueryStateOptions<T> & { defaultValue: NonNullable<T> }
+): CreateQueryStateReturn<T, NonNullable<T>>;
+
+function createQueryState<T>(
+  key: string,
+  options?: CreateQueryStateOptions<T>
+): CreateQueryStateReturn<T, undefined>;
+```
+
+Where the supporting types are:
+
+```ts
+type CreateQueryStateOptions<T> = GenericParser<T> & Options;
+
+type CreateQueryStateReturn<T, Default> = [
+  () => Default extends undefined ? T | null : T,
+  (
+    value: null | T | ((old: Default extends T ? T : T | null) => T | null),
+    options?: Options,
+  ) => void,
+];
+```
+
+## Parameters
+
+<ParamField path="key" type="string" required>
+  The URL search parameter name. For example, `"page"` maps to `?page=1` in the address bar.
+</ParamField>
+
+<ParamField path="options" type="CreateQueryStateOptions<T>">
+  A parser combined with optional `Options` fields. In practice this is a parser builder object
+  such as `parseAsString`, `parseAsInteger`, or a custom parser created with `createParser`.
+
+  You can also call `.withDefault(value)` on any parser builder to set a default, or pass
+  `defaultValue` directly in this object — both are equivalent.
+
+  <Expandable title="Options fields">
+    <ResponseField name="parse" type="(value: string) => T | null" required>
+      Deserializes the raw URL string into the typed value. Supplied automatically by all built-in
+      parser builders.
+    </ResponseField>
+    <ResponseField name="serialize" type="(value: T) => string">
+      Serializes the typed value back to a URL string. Defaults to `String(value)`.
+    </ResponseField>
+    <ResponseField name="eq" type="(a: T, b: T) => boolean">
+      Custom equality function used to determine whether a value equals the default (for
+      `clearOnDefault`). Defaults to strict equality (`===`). Provide a custom function for
+      objects or arrays where reference equality is not meaningful.
+    </ResponseField>
+    <ResponseField name="type" type='"single" | "multi"'>
+      Parser mode. `"single"` reads `searchParams.get()`, `"multi"` reads
+      `searchParams.getAll()`. Defaults to `"single"`.
+    </ResponseField>
+    <ResponseField name="defaultValue" type="NonNullable<T>">
+      The value returned when the key is absent from the URL. When set, the getter return type
+      narrows from `T | null` to `T`. Also causes the key to be removed from the URL when the
+      value is set to this default (controlled by `clearOnDefault`).
+    </ResponseField>
+    <ResponseField name="history" type='"replace" | "push"' default="replace">
+      How URL updates are recorded in the browser history. `"push"` creates a new history entry
+      so the Back button restores the previous value. `"replace"` (default) updates in place.
+    </ResponseField>
+    <ResponseField name="scroll" type="boolean" default="false">
+      Whether to scroll to the top of the page after a URL update.
+    </ResponseField>
+    <ResponseField name="shallow" type="boolean" default="true">
+      Keeps URL updates client-side only. Has no effect in a standard Solid SPA but is respected
+      by meta-framework adapters.
+    </ResponseField>
+    <ResponseField name="throttleMs" type="number" default="50">
+      Minimum milliseconds between URL writes. Prevents hitting browser History API rate limits
+      during rapid updates.
+    </ResponseField>
+    <ResponseField name="limitUrlUpdates" type="LimitUrlUpdates">
+      Fine-grained rate limiting. Takes precedence over `throttleMs` when both are set.
+
+      ```ts
+      type LimitUrlUpdates =
+        | { method: 'debounce'; timeMs: number }
+        | { method: 'throttle'; timeMs: number }
+      ```
+    </ResponseField>
+    <ResponseField name="clearOnDefault" type="boolean" default="true">
+      Remove the key from the URL when its value equals `defaultValue`. Keeps URLs clean by
+      only including non-default state.
+    </ResponseField>
+  </Expandable>
+</ParamField>
+
+## Return value
+
+A `[getter, setter]` tuple.
+
+<ResponseField name="getter" type="() => T | null">
+  A zero-argument accessor function that returns the current parsed value. When `defaultValue` is
+  provided (either in options or via `.withDefault()`), the return type narrows to `T` (never
+  `null`). Without a default value the return type is `T | null`, where `null` means the key is
+  absent from the URL.
+
+  The getter is a Solid.js reactive signal accessor — reading it inside a tracking scope (JSX,
+  `createEffect`, `createMemo`, etc.) subscribes to updates.
+</ResponseField>
+
+<ResponseField name="setter" type="(value: T | null | ((old: T | null) => T | null), options?: Options) => void">
+  Updates the URL parameter. Accepts either:
+
+  - A direct value (`T` or `null` to remove the key).
+  - A functional updater `(old) => newValue` that receives the current value and returns the
+    next one.
+
+  An optional `Options` object can be passed as the second argument to override any options
+  (such as `history`) for that specific call only.
+</ResponseField>
+
+## Overload behavior
+
+| Situation | Getter type | Notes |
+|---|---|---|
+| `defaultValue` provided | `() => T` | The key is never `null`; absent URL key returns the default |
+| No `defaultValue` | `() => T \| null` | `null` means the key is missing from the URL |
+
+## Examples
+
+### With a default value
+
+```tsx
+import { createQueryState, parseAsInteger } from 'solid-query-state';
+
+function Pagination() {
+  const [page, setPage] = createQueryState('page', parseAsInteger.withDefault(1));
+
+  return (
+    <div>
+      <span>Page {page()}</span>
+      <button onClick={() => setPage((p) => p + 1)}>Next</button>
+      <button onClick={() => setPage((p) => Math.max(1, p - 1))}>Prev</button>
+    </div>
+  );
+}
+```
+
+### Without a default value (nullable)
+
+```tsx
+import { createQueryState, parseAsString } from 'solid-query-state';
+
+function SearchBar() {
+  const [query, setQuery] = createQueryState('q', parseAsString);
+
+  return (
+    <input
+      value={query() ?? ''}
+      onInput={(e) => setQuery(e.currentTarget.value || null)}
+      placeholder="Search..."
+    />
+  );
+}
+```
+
+### With a functional updater
+
+```tsx
+import { createQueryState, parseAsInteger } from 'solid-query-state';
+
+function Counter() {
+  const [count, setCount] = createQueryState('count', parseAsInteger.withDefault(0));
+
+  return (
+    <button onClick={() => setCount((c) => c + 1)}>
+      Clicked {count()} times
+    </button>
+  );
+}
+```
+
+### Override history mode per call
+
+```tsx
+import { createQueryState, parseAsString } from 'solid-query-state';
+
+function SearchBar() {
+  // Default to replace, but push on explicit submission
+  const [query, setQuery] = createQueryState('q', parseAsString);
+
+  const handleSubmit = (value: string) => {
+    setQuery(value, { history: 'push' });
+  };
+
+  return (
+    <input
+      value={query() ?? ''}
+      onInput={(e) => setQuery(e.currentTarget.value)}
+      onChange={(e) => handleSubmit(e.currentTarget.value)}
+    />
+  );
+}
+```
+
+<Tip>
+  `.withDefault(value)` on a parser builder and passing `defaultValue` directly in the options
+  object are exactly equivalent — both narrow the return type of the getter from `T | null` to `T`
+  and cause the key to be cleared from the URL when set back to the default.
+
+  ```ts
+  // These two are identical:
+  createQueryState('page', parseAsInteger.withDefault(1))
+  createQueryState('page', { ...parseAsInteger, defaultValue: 1 })
+  ```
+</Tip>

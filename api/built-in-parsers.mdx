@@ -1,0 +1,341 @@
+---
+title: 'Built-in parsers'
+description: 'Reference for all parsers included with solid-query-state.'
+---
+
+Parsers define how a URL query parameter is read from and written to the URL. Each built-in parser handles type coercion, NaN safety, and serialization for you.
+
+Every parser exposes two chainable methods:
+
+- `.withDefault(value)` — sets a default value, changing the returned type from `T | null` to `T`
+- `.withOptions(options)` — overrides per-parser [options](/configuration/options) such as `history` or `clearOnDefault`
+
+## Parser overview
+
+| Parser | TypeScript type | URL example |
+|--------|----------------|-------------|
+| `parseAsString` | `string` | `?q=hello` |
+| `parseAsInteger` | `number` | `?page=1` |
+| `parseAsFloat` | `number` | `?lat=45.5` |
+| `parseAsBoolean` | `boolean` | `?active=true` |
+| `parseAsHex` | `number` | `?color=ff0000` |
+| `parseAsIndex` | `number` | `?tab=2` |
+| `parseAsTimestamp` | `Date` | `?t=1700000000000` |
+| `parseAsIsoDateTime` | `Date` | `?d=2024-01-01T00:00:00Z` |
+| `parseAsIsoDate` | `Date` | `?d=2024-01-01` |
+| `parseAsStringLiteral(values)` | union of string literals | `?mode=dark` |
+| `parseAsStringEnum(values)` | TypeScript enum member | `?sort=asc` |
+| `parseAsNumberLiteral(values)` | union of number literals | `?level=2` |
+| `parseAsArrayOf(parser, sep)` | `T[]` | `?tags=a,b,c` |
+
+## Parser details
+
+<AccordionGroup>
+
+<Accordion title="parseAsString">
+
+Reads and writes a raw string value. Any non-empty query string is accepted as-is.
+
+**TypeScript type:** `string`
+
+```tsx
+import { createQueryState, parseAsString } from 'solid-query-state';
+
+const [search, setSearch] = createQueryState('q', parseAsString.withDefault(''));
+// ?q=hello  →  search() === 'hello'
+// (no param)  →  search() === ''
+```
+
+</Accordion>
+
+<Accordion title="parseAsInteger">
+
+Parses the value with `parseInt`. Returns `null` if the result is `NaN`, keeping your state safe from invalid input.
+
+Serializes by rounding to the nearest integer (`Math.round`), so floating-point setter values are handled gracefully.
+
+**TypeScript type:** `number`
+
+```tsx
+import { createQueryState, parseAsInteger } from 'solid-query-state';
+
+const [page, setPage] = createQueryState('page', parseAsInteger.withDefault(0));
+// ?page=3   →  page() === 3
+// ?page=abc →  page() === 0  (falls back to default)
+```
+
+<Note>
+  `parseAsInteger` stores a rounded integer. Use `parseAsFloat` if you need decimal precision.
+</Note>
+
+</Accordion>
+
+<Accordion title="parseAsFloat">
+
+Parses the value with `parseFloat`. Returns `null` for `NaN`.
+
+**TypeScript type:** `number`
+
+```tsx
+import { createQueryState, parseAsFloat } from 'solid-query-state';
+
+const [lat, setLat] = createQueryState('lat', parseAsFloat);
+// ?lat=45.5  →  lat() === 45.5
+```
+
+</Accordion>
+
+<Accordion title="parseAsBoolean">
+
+Parses the string `"true"` as `true` and any other value (including `"false"`) as `false`. The comparison is case-insensitive.
+
+**TypeScript type:** `boolean`
+
+```tsx
+import { createQueryState, parseAsBoolean } from 'solid-query-state';
+
+const [showModal, setShowModal] = createQueryState('modal', parseAsBoolean.withDefault(false));
+// ?modal=true   →  showModal() === true
+// ?modal=false  →  showModal() === false
+// ?modal=1      →  showModal() === false
+```
+
+<Warning>
+  Only the exact string `"true"` (case-insensitive) is treated as `true`. Any other value becomes `false`.
+</Warning>
+
+</Accordion>
+
+<Accordion title="parseAsHex">
+
+Parses a hexadecimal string into a number using `parseInt(v, 16)`. Serializes back with zero-padding to preserve even-length hex strings (e.g., `255` → `"ff"`, `16711680` → `"ff0000"`).
+
+**TypeScript type:** `number`
+
+Useful for storing color values in the URL.
+
+```tsx
+import { createQueryState, parseAsHex } from 'solid-query-state';
+
+const [color, setColor] = createQueryState('color', parseAsHex.withDefault(0x3e6eaf));
+// ?color=ff0000  →  color() === 16711680
+// setColor(255)  →  ?color=ff
+// setColor(16711680)  →  ?color=ff0000
+```
+
+</Accordion>
+
+<Accordion title="parseAsIndex">
+
+A 1-based URL ↔ 0-based JavaScript index adapter. The URL stores the human-readable 1-based position; your code works with 0-based indices.
+
+**TypeScript type:** `number`
+
+```tsx
+import { createQueryState, parseAsIndex } from 'solid-query-state';
+
+const [activeTab, setActiveTab] = createQueryState('tab', parseAsIndex.withDefault(0));
+// ?tab=1  →  activeTab() === 0
+// ?tab=2  →  activeTab() === 1
+// setActiveTab(0)  →  ?tab=1
+```
+
+</Accordion>
+
+<Accordion title="parseAsTimestamp">
+
+Stores a `Date` as milliseconds since the Unix epoch (the result of `date.valueOf()`). Uses a custom `eq` function that compares dates by value, not by reference.
+
+**TypeScript type:** `Date`
+
+```tsx
+import { createQueryState, parseAsTimestamp } from 'solid-query-state';
+
+const [updatedAfter, setUpdatedAfter] = createQueryState('after', parseAsTimestamp);
+// ?after=1700000000000  →  updatedAfter() instanceof Date
+```
+
+</Accordion>
+
+<Accordion title="parseAsIsoDateTime">
+
+Stores a `Date` as a full ISO 8601 datetime string (e.g., `2024-01-01T00:00:00.000Z`). Invalid date strings parse to `null`. Uses value-based equality.
+
+**TypeScript type:** `Date`
+
+```tsx
+import { createQueryState, parseAsIsoDateTime } from 'solid-query-state';
+
+const [startDate, setStartDate] = createQueryState('start', parseAsIsoDateTime);
+// ?start=2024-01-01T00:00:00Z  →  startDate() instanceof Date
+// setStartDate(new Date('2024-06-01'))  →  ?start=2024-06-01T00:00:00.000Z
+```
+
+</Accordion>
+
+<Accordion title="parseAsIsoDate">
+
+Stores a `Date` using only the date portion of an ISO 8601 string (`YYYY-MM-DD`). The time component is ignored during both parsing and serialization. Uses value-based equality.
+
+**TypeScript type:** `Date`
+
+```tsx
+import { createQueryState, parseAsIsoDate } from 'solid-query-state';
+
+const [birthday, setBirthday] = createQueryState('date', parseAsIsoDate);
+// ?date=2024-01-15  →  birthday() instanceof Date
+// setDate(new Date('2024-06-01T12:00:00Z'))  →  ?date=2024-06-01
+```
+
+</Accordion>
+
+<Accordion title="parseAsStringLiteral(validValues)">
+
+Accepts only values from the provided list. Any URL value not in the list parses to `null`, preventing invalid state from entering your app.
+
+**TypeScript type:** union of the literal strings you provide
+
+```tsx
+import { createQueryState, parseAsStringLiteral } from 'solid-query-state';
+
+const themes = ['light', 'dark', 'system'] as const;
+
+const [theme, setTheme] = createQueryState(
+  'theme',
+  parseAsStringLiteral(themes).withDefault('system')
+);
+// ?theme=dark    →  theme() === 'dark'
+// ?theme=purple  →  theme() === 'system'  (invalid, falls back to default)
+```
+
+</Accordion>
+
+<Accordion title="parseAsStringEnum(validValues)">
+
+Identical behavior to `parseAsStringLiteral`, but accepts a TypeScript `enum`'s values array. This gives you the enum member type in your component rather than a plain string union.
+
+**TypeScript type:** the enum type you provide
+
+```tsx
+import { createQueryState, parseAsStringEnum } from 'solid-query-state';
+
+enum SortOrder {
+  Asc = 'asc',
+  Desc = 'desc',
+}
+
+const [sort, setSort] = createQueryState(
+  'sort',
+  parseAsStringEnum(Object.values(SortOrder)).withDefault(SortOrder.Asc)
+);
+// ?sort=desc  →  sort() === SortOrder.Desc
+```
+
+</Accordion>
+
+<Accordion title="parseAsNumberLiteral(validValues)">
+
+Accepts only numbers from the provided list. Values are parsed with `parseFloat`, then checked against the list. Returns `null` for any value not in the list.
+
+**TypeScript type:** union of the number literals you provide
+
+```tsx
+import { createQueryState, parseAsNumberLiteral } from 'solid-query-state';
+
+const pageSizes = [10, 25, 50, 100] as const;
+
+const [pageSize, setPageSize] = createQueryState(
+  'size',
+  parseAsNumberLiteral(pageSizes).withDefault(25)
+);
+// ?size=50   →  pageSize() === 50
+// ?size=999  →  pageSize() === 25  (invalid, falls back to default)
+```
+
+</Accordion>
+
+<Accordion title="parseAsArrayOf(itemParser, separator)">
+
+Parses a comma-separated (or custom-separated) list of values using any other single-value parser as the item parser. Items that fail to parse are silently filtered out.
+
+**TypeScript type:** `T[]` where `T` is the item parser's output type
+
+The default separator is `","`. If separator characters appear inside individual values, they are percent-encoded automatically.
+
+```tsx
+import { createQueryState, parseAsArrayOf, parseAsString, parseAsInteger } from 'solid-query-state';
+
+const [tags, setTags] = createQueryState(
+  'tags',
+  parseAsArrayOf(parseAsString).withDefault([])
+);
+// ?tags=a,b,c  →  tags() === ['a', 'b', 'c']
+// setTags(['x', 'y'])  →  ?tags=x,y
+
+const [ids, setIds] = createQueryState(
+  'ids',
+  parseAsArrayOf(parseAsInteger).withDefault([])
+);
+// ?ids=1,2,3  →  ids() === [1, 2, 3]
+```
+
+You can pass a custom separator as the second argument:
+
+```tsx
+const [path, setPath] = createQueryState(
+  'path',
+  parseAsArrayOf(parseAsString, '/')
+);
+// ?path=foo/bar/baz  →  path() === ['foo', 'bar', 'baz']
+```
+
+</Accordion>
+
+</AccordionGroup>
+
+## `.withDefault(value)`
+
+Calling `.withDefault(value)` on any parser does two things:
+
+1. Changes the TypeScript return type from `T | null` to `T` — you no longer need to handle `null` in your component.
+2. Sets the `defaultValue` property on the parser, which is used by `clearOnDefault` to remove the key from the URL when the value equals the default.
+
+```tsx
+import { createQueryState, parseAsInteger } from 'solid-query-state';
+
+// Without default: page() is number | null
+const [page] = createQueryState('page', parseAsInteger);
+
+// With default: page() is number
+const [page] = createQueryState('page', parseAsInteger.withDefault(1));
+```
+
+<Tip>
+  With `clearOnDefault: true` (the default), the URL key is removed when the value equals the default. This keeps URLs clean — `?page=1` becomes just `/` when `1` is the default.
+</Tip>
+
+## `.withOptions(options)`
+
+Use `.withOptions()` to apply [options](/configuration/options) to a specific parser rather than to the whole `createQueryState` call. Parser-level options take precedence.
+
+```tsx
+import { createQueryState, parseAsString } from 'solid-query-state';
+
+const [search, setSearch] = createQueryState(
+  'q',
+  parseAsString.withDefault('').withOptions({
+    history: 'push',
+    throttleMs: 300,
+  })
+);
+```
+
+Available options:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `history` | `"replace"` | `"push"` or `"replace"` history entries on change |
+| `scroll` | `false` | Scroll to top on URL update |
+| `throttleMs` | `50` | Minimum milliseconds between URL updates |
+| `clearOnDefault` | `true` | Remove key from URL when value equals default |
+| `limitUrlUpdates` | — | `{ method: "debounce" \| "throttle", timeMs: number }` |

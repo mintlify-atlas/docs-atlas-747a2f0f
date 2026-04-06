@@ -1,0 +1,93 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "solid-query-state",
+  "projectDescription": "Type-safe URL query state management for Solid.js that syncs component state with URL search parameters, enabling shareable filters, pagination, modals, and more with full TypeScript support.",
+  "theme": "luma",
+  "primaryColor": "#3e6eaf",
+  "lightColor": "#86bce6",
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": ["introduction", "installation", "quickstart"]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/filters-and-search",
+              "guides/pagination",
+              "guides/url-key-mapping",
+              "guides/testing"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": ["configuration/options", "configuration/adapters"]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Hooks",
+            "pages": ["api/create-query-state", "api/create-query-states"]
+          },
+          {
+            "group": "Parsers",
+            "pages": ["api/built-in-parsers", "api/custom-parsers"]
+          },
+          {
+            "group": "Utilities",
+            "pages": ["api/testing-utilities", "api/types"]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Two-way sync between component state and URL search parameters",
+    "Type-safe parsers with full TypeScript inference",
+    "Single and multi-key state management via createQueryState and createQueryStates",
+    "Built-in parsers for string, integer, float, boolean, date, hex, arrays, and enums",
+    "Custom parser creation with createParser and createMultiParser",
+    "Configurable history mode (push/replace), scroll behavior, and rate limiting",
+    "Debounce and throttle support to respect browser History API limits",
+    "Dedicated testing adapter (SolidTestingAdapter) for unit testing without a real browser",
+    "Automatic removal of default values from URL (clearOnDefault)",
+    "Back/forward navigation support with popstate listener"
+  ],
+  "publicApiSurface": [
+    "createQueryState(key, options)",
+    "createQueryStates(keyMap, options)",
+    "QueryStateAdapter",
+    "SolidTestingAdapter",
+    "withSolidTestingAdapter(adapterProps)",
+    "parseAsString",
+    "parseAsInteger",
+    "parseAsFloat",
+    "parseAsBoolean",
+    "parseAsHex",
+    "parseAsIndex",
+    "parseAsTimestamp",
+    "parseAsIsoDateTime",
+    "parseAsIsoDate",
+    "parseAsStringLiteral(validValues)",
+    "parseAsStringEnum(validValues)",
+    "parseAsNumberLiteral(validValues)",
+    "parseAsArrayOf(itemParser, separator)",
+    "createParser(parser)",
+    "createMultiParser(parser)",
+    "isParserBijective(parser, serialized, input)",
+    "testSerializeThenParse(parser, input)",
+    "testParseThenSerialize(parser, input)",
+    "inferParserType<Input>",
+    "Options type",
+    "HistoryOptions type",
+    "SearchParams type"
+  ]
+}

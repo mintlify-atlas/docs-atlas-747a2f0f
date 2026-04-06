@@ -1,0 +1,222 @@
+---
+title: 'Custom parsers'
+description: 'Create parsers for types not covered by the built-in set.'
+---
+
+The built-in parsers cover most primitive types, but sometimes you need to store complex objects, use a non-standard serialization format, or apply custom validation logic. `createParser` and `createMultiParser` let you build fully typed parsers that integrate with `createQueryState` and `createQueryStates` exactly like the built-in ones.
+
+## `createParser`
+
+Use `createParser` for parameters that live in a single query key (e.g., `?filter=...`).
+
+```ts
+function createParser<T>(
+  parser: {
+    parse: (value: string) => T | null;
+    serialize: (value: T) => string;
+    eq?: (a: T, b: T) => boolean;
+  }
+): SingleParserBuilder<T>
+```
+
+**`parse`** receives the raw URL string for the parameter and must return either a value of type `T` or `null`. Return `null` whenever the string cannot be decoded into a valid value — the state will fall back to the default (if one is set) or to `null`.
+
+**`serialize`** receives your typed value and must return the string to write into the URL.
+
+**`eq`** is optional. It compares two values to determine equality. Defaults to `===`. See [the `eq` function](#the-eq-function) below.
+
+### JSON parser example
+
+```ts
+import { createParser } from 'solid-query-state';
+
+const parseAsJson = createParser({
+  parse: (v) => {
+    try {
+      return JSON.parse(v) as unknown;
+    } catch {
+      return null;
+    }
+  },
+  serialize: (v) => JSON.stringify(v),
+});
+```
+
+Use it like any built-in parser:
+
+```tsx
+import { createQueryState } from 'solid-query-state';
+
+const [filters, setFilters] = createQueryState(
+  'filters',
+  parseAsJson.withDefault({ status: 'active', role: 'admin' })
+);
+// ?filters={"status":"active","role":"admin"}
+```
+
+### Custom date range parser example
+
+```ts
+import { createParser } from 'solid-query-state';
+
+type DateRange = { from: Date; to: Date };
+
+const parseAsDateRange = createParser<DateRange>({
+  parse: (v) => {
+    const [fromStr, toStr] = v.split('_');
+    if (!fromStr || !toStr) return null;
+    const from = new Date(fromStr);
+    const to = new Date(toStr);
+    if (isNaN(from.valueOf()) || isNaN(to.valueOf())) return null;
+    return { from, to };
+  },
+  serialize: ({ from, to }) =>
+    `${from.toISOString().slice(0, 10)}_${to.toISOString().slice(0, 10)}`,
+  eq: (a, b) =>
+    a.from.valueOf() === b.from.valueOf() && a.to.valueOf() === b.to.valueOf(),
+});
+```
+
+```tsx
+import { createQueryState } from 'solid-query-state';
+
+const [range, setRange] = createQueryState('range', parseAsDateRange);
+// ?range=2024-01-01_2024-01-31
+```
+
+---
+
+## `createMultiParser`
+
+Use `createMultiParser` for parameters stored as repeated query keys (e.g., `?tag=a&tag=b&tag=c`), also known as multi-value params.
+
+```ts
+function createMultiParser<T>(
+  parser: {
+    parse: (value: ReadonlyArray<string>) => T | null;
+    serialize?: (value: T) => Array<string>;
+    eq?: (a: T, b: T) => boolean;
+  }
+): MultiParserBuilder<T>
+```
+
+**`parse`** receives an array of all values for that key and returns `T | null`.
+
+**`serialize`** receives your value and returns an array of strings. Each string becomes a separate `key=value` entry in the URL. Defaults to `[String(v)]`.
+
+**`eq`** — same as for `createParser`.
+
+### Multi-value tags example
+
+```ts
+import { createMultiParser } from 'solid-query-state';
+
+const parseAsMultiTags = createMultiParser<string[]>({
+  parse: (values) => (values.length > 0 ? [...values] : null),
+  serialize: (tags) => tags,
+  eq: (a, b) => a.length === b.length && a.every((v, i) => v === b[i]),
+});
+```
+
+```tsx
+import { createQueryState } from 'solid-query-state';
+
+const [tags, setTags] = createQueryState('tag', parseAsMultiTags.withDefault([]));
+// ?tag=a&tag=b&tag=c  →  tags() === ['a', 'b', 'c']
+```
+
+<Note>
+  For comma-separated arrays in a single key (e.g., `?tags=a,b,c`), use the built-in
+  [`parseAsArrayOf`](/api/built-in-parsers) instead.
+</Note>
+
+---
+
+## The `eq` function
+
+The `eq` function controls how the parser determines whether two values are equal. It affects:
+
+- **`clearOnDefault` behavior** — the URL key is removed when the current value is equal to the default value (using `eq`).
+- **Reactive updates** — `createQueryState` uses `eq` internally to avoid unnecessary re-renders when the parsed value hasn't meaningfully changed.
+
+The default `eq` is strict reference equality (`===`), which works correctly for primitives. For objects and arrays, you need to provide a structural comparison.
+
+```ts
+import { createParser } from 'solid-query-state';
+
+type Point = { x: number; y: number };
+
+const parseAsPoint = createParser<Point>({
+  parse: (v) => {
+    const [x, y] = v.split(',').map(Number);
+    if (isNaN(x) || isNaN(y)) return null;
+    return { x, y };
+  },
+  serialize: ({ x, y }) => `${x},${y}`,
+  eq: (a, b) => a.x === b.x && a.y === b.y, // structural equality
+});
+```
+
+Without a custom `eq`, two `{ x: 1, y: 2 }` objects created from the same URL string would never be considered equal, causing `clearOnDefault` to leave stale keys in the URL.
+
+---
+
+## `SingleParserBuilder` and `MultiParserBuilder`
+
+Both `createParser` and `createMultiParser` return a builder object with these methods:
+
+| Method | Description |
+|--------|-------------|
+| `.withDefault(value)` | Sets a default value; changes the return type from `T \| null` to `T` |
+| `.withOptions(options)` | Merges [options](/configuration/options) into this parser |
+| `.parseServerSide(value)` | Parses a value for SSR use (see below) |
+
+Both builder types also expose the underlying `parse`, `serialize`, and `eq` functions, so you can compose parsers or test them directly.
+
+---
+
+## `parseServerSide`
+
+The `.parseServerSide(value)` method is designed for server-side rendering. It accepts `string | string[] | undefined` — the shape that server frameworks typically provide for query parameters — and returns `T | null`.
+
+```ts
+// value comes from a server request object, e.g. event.query.page
+const page = parseAsInteger.withDefault(1).parseServerSide(event.query.page);
+// Returns a number. Falls back to 1 if undefined or unparseable.
+```
+
+For a `SingleParserBuilder`, if the input is an array, only the first element is used. For a `MultiParserBuilder`, the full array is passed to `parse`.
+
+<Tip>
+  After calling `.withDefault(value)`, `parseServerSide` will return the default instead of `null`
+  when the input is `undefined` or invalid.
+</Tip>
+
+---
+
+## `inferParserType<T>`
+
+`inferParserType` is a utility type that extracts the output type from a parser or a record of parsers. Use it when you need the inferred state type without accessing the runtime value.
+
+```ts
+import { inferParserType, parseAsInteger, parseAsString, parseAsStringLiteral } from 'solid-query-state';
+
+// Single parser — with default
+type Page = inferParserType<typeof parseAsInteger>;
+// → number | null
+
+type PageWithDefault = inferParserType<ReturnType<typeof parseAsInteger.withDefault>>;
+// → number
+
+// Record of parsers — useful for createQueryStates
+const parsers = {
+  search: parseAsString.withDefault(''),
+  page: parseAsInteger.withDefault(1),
+  sort: parseAsStringLiteral(['asc', 'desc'] as const),
+};
+
+type FiltersState = inferParserType<typeof parsers>;
+// → { search: string; page: number; sort: 'asc' | 'desc' | null }
+```
+
+When a parser has a `.defaultValue`, `inferParserType` returns the non-nullable type. Without a default, it returns `T | null`.

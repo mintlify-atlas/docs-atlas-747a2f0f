@@ -1,0 +1,184 @@
+---
+title: "Options"
+description: "Configure how solid-query-state reads and writes URL search parameters. Options can be set globally, per hook call, or per setter call."
+---
+
+Every `createQueryState` and `createQueryStates` call accepts an `Options` object that controls history behavior, scroll restoration, rate limiting, and more.
+
+## Option reference
+
+<ParamField path="history" type='"replace" | "push"' default="replace">
+  Controls how URL updates affect the browser's history stack.
+
+  - `"replace"` — updates the current history entry in place. The back button takes the user to the page they were on before navigating to your app.
+  - `"push"` — creates a new history entry for each update. The back button steps through each state change.
+
+  Use `"push"` when each URL state represents a meaningful navigation step (e.g., a wizard or multi-step flow). Use `"replace"` for transient UI state like filters or search terms.
+</ParamField>
+
+<ParamField path="scroll" type="boolean" default="false">
+  When `true`, the page scrolls to the top after each URL update. Useful when changing pages in a paginated list where new content loads at the top of the viewport.
+</ParamField>
+
+<ParamField path="shallow" type="boolean" default="true">
+  When `true`, URL updates stay client-side only and do not trigger a server request. In a Solid SPA this option has no effect, but it is included for compatibility with server-rendered environments.
+</ParamField>
+
+<ParamField path="throttleMs" type="number" default="50">
+  The minimum number of milliseconds between URL updates. Browsers impose rate limits on the History API (typically 100 calls per 30 seconds); this option keeps updates within safe bounds.
+
+  Set a higher value (e.g. `200`) when you expect many rapid updates, such as a live text search that updates on every keystroke. For finer control over the update strategy, use `limitUrlUpdates` instead.
+</ParamField>
+
+<ParamField path="limitUrlUpdates" type='{ method: "debounce" | "throttle"; timeMs: number }'>
+  Overrides `throttleMs` with an explicit rate-limiting strategy. When both `limitUrlUpdates` and `throttleMs` are set, `limitUrlUpdates` takes precedence.
+
+  - `"throttle"` — allows at most one URL update per `timeMs` window, firing immediately and then waiting.
+  - `"debounce"` — delays the URL update by `timeMs` after the last setter call, resetting the timer on each call.
+
+  `"debounce"` is the better choice for text inputs where you want to write to the URL only after the user stops typing.
+</ParamField>
+
+<ParamField path="clearOnDefault" type="boolean" default="true">
+  When `true` and a value is set to its default, the key is removed from the URL entirely rather than being written with the default value. This keeps URLs short and clean.
+
+  For example, if `page` has a default of `1` and `clearOnDefault` is `true`, navigating to page 1 produces `/items` rather than `/items?page=1`.
+</ParamField>
+
+## Setting options at each level
+
+Options follow a priority chain: a setter call overrides the hook call, which overrides the adapter defaults.
+
+### 1. Global defaults via `QueryStateAdapter`
+
+Pass `defaultOptions` to `QueryStateAdapter` to apply defaults across every hook in your app. Only `scroll`, `shallow`, `clearOnDefault`, and `limitUrlUpdates` are supported as global defaults.
+
+```tsx
+import { render } from "solid-js/web";
+import { QueryStateAdapter } from "solid-query-state";
+import App from "./App";
+
+render(
+  () => (
+    <QueryStateAdapter
+      defaultOptions={{
+        scroll: false,
+        clearOnDefault: true,
+        limitUrlUpdates: { method: "debounce", timeMs: 300 },
+      }}
+    >
+      <App />
+    </QueryStateAdapter>
+  ),
+  document.getElementById("root")!,
+);
+```
+
+### 2. Per hook call
+
+For `createQueryState`, merge options directly into the parser argument using `.withOptions()`, or spread them alongside the parser. For `createQueryStates`, pass options as the second argument.
+
+```tsx
+import { createQueryState, createQueryStates, parseAsString, parseAsInteger } from "solid-query-state";
+
+// Single param — push history and debounce URL writes via .withOptions()
+const [search, setSearch] = createQueryState(
+  "q",
+  parseAsString.withDefault("").withOptions({
+    history: "push",
+    limitUrlUpdates: { method: "debounce", timeMs: 300 },
+  }),
+);
+
+// Multiple params — shared options for the group (second argument)
+const [state, setState] = createQueryStates(
+  {
+    page: parseAsInteger.withDefault(1),
+    sort: parseAsString.withDefault("asc"),
+  },
+  {
+    history: "replace",
+    scroll: true,
+  },
+);
+```
+
+### 3. Per setter call
+
+Pass options as the second argument to any setter to override options for that single update. This is useful when one interaction should create a history entry while others should not.
+
+```tsx
+const [page, setPage] = createQueryState("page", parseAsInteger.withDefault(1));
+
+// Normal update — uses the hook's default (replace)
+setPage(2);
+
+// This update creates a history entry
+setPage(3, { history: "push" });
+
+// Navigate to page 1 without scrolling, even if the hook has scroll: true
+setPage(1, { scroll: false });
+```
+
+<Tip>
+  Per-setter options are ideal for "deep link" actions where you want the user to be able to navigate back to a specific state, while keeping routine filter changes out of the history stack.
+</Tip>
+
+## Priority order
+
+When the same option is set at multiple levels, the most specific value wins:
+
+```
+setter call options
+  → hook-level options
+    → QueryStateAdapter defaultOptions
+      → built-in defaults
+```
+
+## Rate-limiting helpers
+
+`solid-query-state` exports two helper functions and a constant that make it easier to build `limitUrlUpdates` values:
+
+### `throttle(timeMs)`
+
+Returns a `LimitUrlUpdates` object with `method: "throttle"`.
+
+```ts
+import { throttle } from 'solid-query-state'
+
+// Equivalent to: { method: "throttle", timeMs: 100 }
+const [state, setState] = createQueryStates(keyMap, {
+  limitUrlUpdates: throttle(100),
+})
+```
+
+### `debounce(timeMs)`
+
+Returns a `LimitUrlUpdates` object with `method: "debounce"`.
+
+```ts
+import { debounce } from 'solid-query-state'
+
+// Equivalent to: { method: "debounce", timeMs: 300 }
+const [search, setSearch] = createQueryState(
+  'q',
+  parseAsString.withDefault('').withOptions({
+    limitUrlUpdates: debounce(300),
+  }),
+)
+```
+
+### `defaultRateLimit`
+
+The built-in default rate limit used when no `throttleMs` or `limitUrlUpdates` is specified.
+
+```ts
+import { defaultRateLimit } from 'solid-query-state'
+
+// { method: "throttle", timeMs: 50 }
+console.log(defaultRateLimit)
+```
+
+<Tip>
+  Use `debounce(300)` for text search inputs to avoid writing to the URL on every keystroke. Use `throttle(50)` (or the default) for sliders and other continuous controls.
+</Tip>

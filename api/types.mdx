@@ -1,0 +1,414 @@
+---
+title: 'TypeScript types'
+description: 'Full type surface exported by solid-query-state for use in custom code.'
+---
+
+`solid-query-state` exports its complete type surface. Import any type directly from the package:
+
+```ts
+import type {
+  Options,
+  HistoryOptions,
+  LimitUrlUpdates,
+  SearchParams,
+  Nullable,
+  UrlKeys,
+  inferParserType,
+  CreateQueryStateReturn,
+  UseQueryStatesReturn,
+  UseQueryStatesKeysMap,
+  UrlUpdateEvent,
+} from 'solid-query-state'
+```
+
+---
+
+## Core option types
+
+### HistoryOptions
+
+Controls whether a URL update pushes a new browser history entry or replaces the current one.
+
+```ts
+type HistoryOptions = "replace" | "push"
+```
+
+| Value | Behaviour |
+|---|---|
+| `"replace"` | Default. Overwrites the current history entry; the Back button is unaffected. |
+| `"push"` | Creates a new history entry; the Back button navigates to the previous URL. |
+
+---
+
+### LimitUrlUpdates
+
+Controls fine-grained rate limiting for URL updates. Used as the value of the `limitUrlUpdates` option.
+
+```ts
+type LimitUrlUpdates =
+  | { method: "debounce"; timeMs: number }
+  | { method: "throttle"; timeMs: number }
+```
+
+| Value | Behaviour |
+|---|---|
+| `"throttle"` | Fires immediately, then waits `timeMs` before the next update. |
+| `"debounce"` | Delays the update by `timeMs` after the last setter call; resets on each call. |
+
+---
+
+### Options
+
+The full configuration object accepted by `createQueryState`, `createQueryStates`, and individual parsers via `.withOptions()`.
+
+```ts
+type Options = {
+  /**
+   * How the query update affects page history.
+   * `push` creates a new history entry (Back button works).
+   * `replace` (default) keeps current history point.
+   */
+  history?: HistoryOptions
+
+  /**
+   * Scroll to top after a query state update.
+   * Defaults to false.
+   */
+  scroll?: boolean
+
+  /**
+   * Shallow mode (true by default) keeps updates client-side only.
+   * No effect in Solid SPA.
+   */
+  shallow?: boolean
+
+  /**
+   * Maximum time (ms) between URL updates.
+   * Defaults to 50ms to avoid browser History API rate limits.
+   */
+  throttleMs?: number
+
+  /**
+   * Limit the rate of URL updates.
+   * Takes precedence over throttleMs if both are set.
+   */
+  limitUrlUpdates?: LimitUrlUpdates
+
+  /**
+   * Clear the key from URL when set to default value.
+   * Defaults to true.
+   */
+  clearOnDefault?: boolean
+}
+```
+
+---
+
+## Search param types
+
+### SearchParams
+
+A plain-object representation of URL search params. Values may be a single string, an array of strings (for repeated keys), or `undefined`.
+
+```ts
+type SearchParams = Record<string, string | string[] | undefined>
+```
+
+---
+
+### Nullable\<T\>
+
+Makes every property in `T` accept `null` in addition to its original type.
+
+```ts
+type Nullable<T> = {
+  [K in keyof T]: T[K] | null
+} & {}
+```
+
+Used internally for the state shape returned before default values are applied.
+
+---
+
+### UrlKeys\<T\>
+
+A partial record that maps state keys to custom URL parameter names. Use this when the key you want in your code differs from the query string key.
+
+```ts
+type UrlKeys<T extends Record<string, string>> = Partial<Record<keyof T, string>>
+```
+
+```ts
+// Map the state key `page` to the URL key `p`
+createQueryStates(
+  { page: parseAsInteger },
+  { urlKeys: { page: 'p' } },
+)
+// URL: ?p=1  →  state: { page: 1 }
+```
+
+---
+
+## Parser types
+
+### SingleParser\<T\>
+
+The raw parser shape passed to `createParser`. Only `parse` is required; all other fields are optional.
+
+```ts
+type SingleParser<T> = {
+  type?: "single"
+  parse: (value: string) => T | null
+  serialize?: (value: T) => string
+  eq?: (a: T, b: T) => boolean
+}
+```
+
+---
+
+### MultiParser\<T\>
+
+The raw parser shape passed to `createMultiParser`. Operates on arrays of strings instead of a single string, enabling repeated query keys.
+
+```ts
+type MultiParser<T> = {
+  type: "multi"
+  parse: (value: ReadonlyArray<string>) => T | null
+  serialize?: (value: T) => Array<string>
+  eq?: (a: T, b: T) => boolean
+}
+```
+
+---
+
+### GenericParser\<T\>
+
+Union of `SingleParser<T>` and `MultiParser<T>`. Use this when writing code that accepts either parser kind.
+
+```ts
+type GenericParser<T> = SingleParser<T> | MultiParser<T>
+```
+
+---
+
+### SingleParserBuilder\<T\>
+
+The fully-built parser object returned by `createParser`. Extends `SingleParser<T>` with all fields required, `Options` for per-parser configuration, and the builder methods `.withDefault()` and `.withOptions()`.
+
+```ts
+type SingleParserBuilder<T> = Required<SingleParser<T>> &
+  Options & {
+    withOptions(this: SingleParserBuilder<T>, options: Options): SingleParserBuilder<T>
+    withDefault(
+      this: SingleParserBuilder<T>,
+      defaultValue: NonNullable<T>,
+    ): Omit<SingleParserBuilder<T>, 'parseServerSide'> & {
+      readonly defaultValue: NonNullable<T>
+    }
+    parseServerSide(value: string | string[] | undefined): T | null
+  }
+```
+
+---
+
+### MultiParserBuilder\<T\>
+
+The fully-built parser object returned by `createMultiParser`. Same shape as `SingleParserBuilder<T>` but for multi-value parsers.
+
+```ts
+type MultiParserBuilder<T> = Required<MultiParser<T>> &
+  Options & {
+    withOptions(this: MultiParserBuilder<T>, options: Options): MultiParserBuilder<T>
+    withDefault(
+      this: MultiParserBuilder<T>,
+      defaultValue: NonNullable<T>,
+    ): Omit<MultiParserBuilder<T>, 'parseServerSide'> & {
+      readonly defaultValue: NonNullable<T>
+    }
+    parseServerSide(value: string | string[] | undefined): T | null
+  }
+```
+
+---
+
+### GenericParserBuilder\<T\>
+
+Union of `SingleParserBuilder<T>` and `MultiParserBuilder<T>`. Used by testing utilities and other code that accepts either builder kind.
+
+```ts
+type GenericParserBuilder<T> = SingleParserBuilder<T> | MultiParserBuilder<T>
+```
+
+---
+
+### inferParserType\<Input\>
+
+Utility type that extracts the output value type from a parser builder or a keymap of parser builders.
+
+```ts
+type inferParserType<Input> =
+  Input extends GenericParserBuilder<infer Value>
+    ? Input extends { defaultValue: NonNullable<Value> }
+      ? NonNullable<Value>
+      : Value | null
+    : Input extends Record<string, GenericParserBuilder<unknown>>
+      ? {
+          [K in keyof Input]: Input[K] extends GenericParserBuilder<infer V>
+            ? Input[K] extends { defaultValue: NonNullable<V> }
+              ? NonNullable<V>
+              : V | null
+            : never
+        }
+      : never
+```
+
+When the parser has a `.withDefault()` value, the inferred type is `NonNullable<T>`. Without a default, the type is `T | null`.
+
+```ts
+import { parseAsInteger, parseAsString } from 'solid-query-state'
+import type { inferParserType } from 'solid-query-state'
+
+// T | null  (no default)
+type A = inferParserType<typeof parseAsInteger>
+//   ^? number | null
+
+// NonNullable<T>  (has default)
+type B = inferParserType<ReturnType<typeof parseAsInteger.withDefault>>
+//   ^? number
+
+// From a keymap
+const keyMap = {
+  page: parseAsInteger.withDefault(1),
+  search: parseAsString,
+}
+type State = inferParserType<typeof keyMap>
+//   ^? { page: number; search: string | null }
+```
+
+---
+
+## Hook return types
+
+### CreateQueryStateReturn\<T, Default\>
+
+The tuple returned by `createQueryState`.
+
+```ts
+type CreateQueryStateReturn<T, Default> = [
+  () => Default extends undefined ? T | null : T,
+  (
+    value: null | T | ((old: Default extends T ? T : T | null) => T | null),
+    options?: Options,
+  ) => void,
+]
+```
+
+The first element is a Solid reactive accessor. The second is a setter that accepts a value, `null` to clear the key, or an updater function.
+
+```ts
+import type { CreateQueryStateReturn } from 'solid-query-state'
+
+// Without default: getter returns number | null
+const [page, setPage]: CreateQueryStateReturn<number, undefined> = createQueryState('page', parseAsInteger)
+
+// With default: getter returns number
+const [page, setPage]: CreateQueryStateReturn<number, number> = createQueryState('page', parseAsInteger.withDefault(1))
+```
+
+---
+
+### UseQueryStatesReturn\<T\>
+
+The tuple returned by `createQueryStates`.
+
+```ts
+type UseQueryStatesReturn<T extends UseQueryStatesKeysMap> = [() => Values<T>, SetValues<T>]
+```
+
+The first element is a reactive accessor returning an object keyed by your keymap. The second is a setter that accepts a partial update object, an updater function, or `null` to clear all keys.
+
+---
+
+### UseQueryStatesKeysMap
+
+The type of the first argument to `createQueryStates`. A record mapping state key names to parser objects (with optional per-key options).
+
+```ts
+type UseQueryStatesKeysMap = Record<string, KeyMapValue>
+```
+
+Where `KeyMapValue` is:
+
+```ts
+type KeyMapValue = {
+  parse: (value: string) => unknown
+  serialize?: (value: unknown) => string
+  eq?: (a: unknown, b: unknown) => boolean
+  type?: "single" | "multi"
+  defaultValue?: unknown
+} & Options
+```
+
+In practice you always pass a `SingleParserBuilder` or `MultiParserBuilder` as the value, which satisfies this shape:
+
+```ts
+import { parseAsString, parseAsInteger } from 'solid-query-state'
+
+const [state, setState] = createQueryStates({
+  search: parseAsString,
+  page: parseAsInteger.withDefault(1),
+})
+```
+
+---
+
+### SetValues\<T\>
+
+The type of the setter returned by `createQueryStates`.
+
+```ts
+type SetValues<T extends UseQueryStatesKeysMap> = (
+  values: Partial<NullableValues<T>> | UpdaterFn<T> | null,
+  options?: Options,
+) => void
+```
+
+Accepts a partial update object, an updater function, or `null` to clear all managed keys.
+
+---
+
+## Event types
+
+### UrlUpdateEvent
+
+The argument passed to the `onUrlUpdate` callback of `SolidTestingAdapter`. Also exported for use when typing spies and mock handlers.
+
+```ts
+type UrlUpdateEvent = {
+  searchParams: URLSearchParams
+  queryString: string
+  options: Required<AdapterOptions>
+}
+```
+
+<ResponseField name="searchParams" type="URLSearchParams" required>
+  A snapshot of the complete search params after the update.
+</ResponseField>
+
+<ResponseField name="queryString" type="string" required>
+  The rendered query string including the leading `?`.
+</ResponseField>
+
+<ResponseField name="options" type="Required<AdapterOptions>" required>
+  The fully-resolved adapter options (history, scroll, shallow) that were used for this URL update.
+</ResponseField>
+
+```ts
+import type { UrlUpdateEvent } from 'solid-query-state'
+
+const onUrlUpdate = vi.fn<[UrlUpdateEvent], void>()
+// later in the test:
+expect(onUrlUpdate).toHaveBeenCalledWith(
+  expect.objectContaining({ queryString: '?page=2' }),
+)
+```

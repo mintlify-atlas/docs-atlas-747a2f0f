@@ -1,0 +1,95 @@
+---
+title: "Adapters"
+description: "Adapters connect solid-query-state to the browser URL. Wrap your app with QueryStateAdapter before using any hooks."
+---
+
+An adapter is responsible for reading the current URL search parameters and writing updates back to the browser's History API. `solid-query-state` ships with two adapters: `QueryStateAdapter` for production apps and `SolidTestingAdapter` for tests.
+
+## `QueryStateAdapter`
+
+`QueryStateAdapter` must wrap your entire component tree before you call `createQueryState` or `createQueryStates`. Place it as high as possible — typically in the entry point of your app.
+
+```tsx
+import { render } from "solid-js/web";
+import { QueryStateAdapter } from "solid-query-state";
+import App from "./App";
+
+render(
+  () => (
+    <QueryStateAdapter>
+      <App />
+    </QueryStateAdapter>
+  ),
+  document.getElementById("root")!,
+);
+```
+
+<Warning>
+  Calling `createQueryState` or `createQueryStates` without a `QueryStateAdapter` ancestor throws:
+  `[solid-query-state] QueryStateAdapter not found. Wrap your app with <QueryStateAdapter>`
+</Warning>
+
+### Props
+
+<ParamField path="children" type="JSX.Element" required>
+  The rest of your component tree. All components that use `createQueryState` or `createQueryStates` must be descendants of `QueryStateAdapter`.
+</ParamField>
+
+<ParamField path="defaultOptions" type='Partial<Pick<Options, "scroll" | "clearOnDefault" | "limitUrlUpdates" | "shallow">>'>
+  Global option defaults applied to every `createQueryState` and `createQueryStates` call in your app. Individual hooks and setter calls can override these values.
+
+  See the [Options](/configuration/options) reference for descriptions of each field.
+
+  ```tsx
+  <QueryStateAdapter
+    defaultOptions={{
+      scroll: false,
+      clearOnDefault: true,
+      limitUrlUpdates: { method: "debounce", timeMs: 300 },
+    }}
+  >
+    <App />
+  </QueryStateAdapter>
+  ```
+</ParamField>
+
+<ParamField path="processUrlSearchParams" type="(search: URLSearchParams) => URLSearchParams">
+  An optional function that transforms the `URLSearchParams` object before `solid-query-state` reads from it. The return value is used as the source of truth for all hooks.
+
+  Use this to strip parameters that are managed by another library, normalize casing, or remove tracking parameters before they reach your state hooks.
+
+  ```tsx
+  <QueryStateAdapter
+    processUrlSearchParams={(search) => {
+      // Remove analytics parameters before solid-query-state reads the URL
+      const filtered = new URLSearchParams(search);
+      filtered.delete("utm_source");
+      filtered.delete("utm_medium");
+      filtered.delete("utm_campaign");
+      return filtered;
+    }}
+  >
+    <App />
+  </QueryStateAdapter>
+  ```
+
+  <Note>
+    `processUrlSearchParams` only affects how the URL is **read**. It does not modify the actual browser URL or interfere with URL writes.
+  </Note>
+</ParamField>
+
+## `SolidTestingAdapter`
+
+`SolidTestingAdapter` replaces the real browser URL with an in-memory store, making it safe to test components that use `createQueryState` without a browser environment.
+
+For full documentation and usage examples, see the [Testing guide](/guides/testing).
+
+```tsx
+import { render } from "@solidjs/testing-library";
+import { withSolidTestingAdapter } from "solid-query-state";
+import MyComponent from "./MyComponent";
+
+const { getByTestId } = render(() => <MyComponent />, {
+  wrapper: withSolidTestingAdapter({ searchParams: "?q=hello&page=2" }),
+});
+```

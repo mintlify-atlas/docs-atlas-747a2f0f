@@ -1,0 +1,146 @@
+---
+title: "Pagination"
+description: "Sync page and page size to the URL so users can bookmark and share paginated views."
+---
+
+Pagination state stored only in component memory resets on every navigation. Putting it in the URL means users can bookmark a specific page, share it, or use the browser back button to return to it.
+
+## Single page parameter
+
+For simple pagination, use `createQueryState` with `parseAsInteger`:
+
+```tsx
+import { createQueryState, parseAsInteger } from "solid-query-state";
+
+function ProductList() {
+  const [page, setPage] = createQueryState(
+    "page",
+    parseAsInteger.withDefault(1),
+  );
+
+  return (
+    <div>
+      <ProductGrid page={page()} />
+      <button
+        disabled={page() <= 1}
+        onClick={() => setPage((p) => p - 1)}
+      >
+        Previous
+      </button>
+      <span>Page {page()}</span>
+      <button onClick={() => setPage((p) => p + 1)}>Next</button>
+    </div>
+  );
+}
+```
+
+Visiting `?page=3` loads page 3 directly. The default of `1` means no `?page` param appears in the URL when the user is on page 1 (because `clearOnDefault` is `true` by default).
+
+## Page and page size together
+
+Use `createQueryStates` when you need both `page` and `pageSize` in sync:
+
+```tsx
+import { createQueryStates, parseAsInteger } from "solid-query-state";
+
+function ProductList() {
+  const [pagination, setPagination] = createQueryStates({
+    page: parseAsInteger.withDefault(1),
+    pageSize: parseAsInteger.withDefault(20),
+  });
+
+  const offset = () => (pagination().page - 1) * pagination().pageSize;
+
+  return (
+    <div>
+      <ProductGrid offset={offset()} limit={pagination().pageSize} />
+
+      <select
+        value={pagination().pageSize}
+        onChange={(e) =>
+          setPagination({ pageSize: Number(e.currentTarget.value), page: 1 })
+        }
+      >
+        <option value={10}>10 per page</option>
+        <option value={20}>20 per page</option>
+        <option value={50}>50 per page</option>
+      </select>
+
+      <button
+        disabled={pagination().page <= 1}
+        onClick={() => setPagination((p) => ({ page: p.page - 1 }))}
+      >
+        Previous
+      </button>
+      <span>Page {pagination().page}</span>
+      <button onClick={() => setPagination((p) => ({ page: p.page + 1 }))}> 
+        Next
+      </button>
+    </div>
+  );
+}
+```
+
+When the user changes `pageSize`, resetting `page` to `1` in the same call prevents landing on a page that no longer exists.
+
+## `history: "push"` vs `history: "replace"`
+
+The `history` option controls what happens to the browser history stack on each page change.
+
+| Option | Behavior |
+| --- | --- |
+| `"replace"` (default) | Overwrites the current history entry. The back button goes to the page before the list. |
+| `"push"` | Creates a new history entry. The back button goes to the previous page in the list. |
+
+For pagination, `"push"` is usually the right choice—users expect the back button to take them back a page:
+
+```tsx
+const [page, setPage] = createQueryState(
+  "page",
+  parseAsInteger.withDefault(1).withOptions({ history: "push" }),
+);
+```
+
+Or pass `history` as an option at call time if you want to decide per-update:
+
+```tsx
+setPage((p) => p + 1, { history: "push" });
+```
+
+<Tip>
+  Reserve `history: "replace"` for ephemeral UI state like search input debouncing, where you don't want every keystroke to pollute the history stack.
+</Tip>
+
+## Using `parseAsIndex` for 1-based display
+
+`parseAsIndex` stores a **0-based** index internally but displays it as a **1-based** number in the URL. This matches the convention of most data APIs (0-indexed) while keeping URLs human-readable.
+
+```tsx
+import { createQueryState, parseAsIndex } from "solid-query-state";
+
+function Tabs() {
+  // URL: ?tab=1  →  activeTab() === 0 (first tab, 0-indexed)
+  // URL: ?tab=2  →  activeTab() === 1 (second tab, 0-indexed)
+  const [activeTab, setActiveTab] = createQueryState(
+    "tab",
+    parseAsIndex.withDefault(0),
+  );
+
+  return (
+    <div>
+      {["Overview", "Reviews", "Specs"].map((label, i) => (
+        <button
+          aria-selected={activeTab() === i}
+          onClick={() => setActiveTab(i)}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+```
+
+<Note>
+  `parseAsIndex` serializes `0` as `"1"`, `1` as `"2"`, and so on. When `clearOnDefault` is enabled and the default is `0`, the param is omitted from the URL entirely when the first tab is active.
+</Note>

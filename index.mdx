@@ -1,97 +1,83 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "solid-query-state"
+description: "Type-safe URL query state management for Solid.js. Sync component state with URL search parameters for filters, pagination, modals, and more."
 ---
 
-## Setting up
+`solid-query-state` gives you a `createSignal`-like API that automatically persists state to the URL. When users share a link, their filters, pagination, and search terms come along for the ride — no extra code required.
 
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install via npm, pnpm, yarn, or bun and wrap your app in minutes
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Go from zero to URL-synced state in under 5 minutes
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="API Reference" icon="code" href="/api/create-query-state">
+    Full reference for createQueryState, createQueryStates, and all parsers
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Guides" icon="map" href="/guides/filters-and-search">
+    Real-world patterns for filters, pagination, and testing
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Why solid-query-state?
 
-Everything you need to create world-class documentation.
+Managing state in URL search params manually is tedious — you have to parse strings, handle missing values, keep state in sync on navigation, and write boilerplate for every parameter type. `solid-query-state` handles all of this with a clean, type-safe API that feels like native Solid.js.
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
+<CardGroup cols={2}>
+  <Card title="Type-safe by default" icon="shield-check">
+    Every parser returns a TypeScript-inferred type. No manual casting, no `any`.
   </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
+  <Card title="Shareable URLs" icon="link">
+    State lives in the URL, so links always reflect the current view.
   </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
+  <Card title="Works with back/forward" icon="arrow-left-arrow-right">
+    Browser history navigation automatically restores state — no extra setup.
   </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
+  <Card title="Built-in parsers" icon="layer-group">
+    String, integer, float, boolean, date, hex, arrays, and enum parsers included.
   </Card>
-</Columns>
+</CardGroup>
 
-## Need inspiration?
+## How it works
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<Steps>
+  <Step title="Wrap your app">
+    Add `QueryStateAdapter` at the root of your component tree to enable URL sync.
+
+    ```tsx
+    import { QueryStateAdapter } from "solid-query-state";
+
+    render(
+      () => (
+        <QueryStateAdapter>
+          <App />
+        </QueryStateAdapter>
+      ),
+      document.getElementById("root")!,
+    );
+    ```
+  </Step>
+  <Step title="Declare URL state">
+    Use `createQueryState` like you would `createSignal`. Pass a parser to define the type.
+
+    ```tsx
+    import { createQueryState, parseAsInteger } from "solid-query-state";
+
+    const [page, setPage] = createQueryState("page", parseAsInteger.withDefault(1));
+    ```
+  </Step>
+  <Step title="Read and write">
+    Call the getter in JSX and the setter in event handlers. The URL updates automatically.
+
+    ```tsx
+    <button onClick={() => setPage((p) => p + 1)}>
+      Page {page()}
+    </button>
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  **Requirements:** Solid.js ^1 and TypeScript ^5. Install with `npm install solid-query-state`.
+</Note>
